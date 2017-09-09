@@ -2,26 +2,16 @@ const levelDB = require('level')
 
 function generateID(a) { return a ? (a ^ Math.random() * 16 >> a / 4).toString(16) : ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, generateID) }
 
-let dbPermanent = levelDB('./dbPermanent', {
+const db = levelDB('./db', {
 	valueEncoding: "json",
-	cacheSize: 32 * 1024 * 1024
+	cacheSize: 64 * 1024 * 1024
 })
-
-let dbTemp = levelDB('./dbTemp', {
-	valueEncoding: "json",
-	cacheSize: 16 * 1024 * 1024
-})
-
-dbTemp.createKeyStream()
-	.on('data', function(data) {
-		console.log("key:", data)
-	})
 
 const cleanTemp = () => {
-	console.log("starting cleanup of temp shares")
+	//console.log("starting cleanup of temp shares")
 	let ops = []
 
-	dbTemp.createKeyStream({
+	db.createKeyStream({
 			lte: String(Date.now()),
 		})
 		.on('data', function(data) {
@@ -29,7 +19,7 @@ const cleanTemp = () => {
 			ops.push({ type: "del", key: data })
 		})
 		.on('end', function() {
-			dbTemp.batch(ops, (err) => {
+			db.batch(ops, (err) => {
 				if (err) {
 					console.log("error", err)
 				}
@@ -51,9 +41,7 @@ for (let i = 0; i < 10; i++) {
 
 const getSpecificShare = (id, res) => {
 	if (!id || typeof(id) != "string") return null
-	let actualDB = id.startsWith("0") ? dbPermanent : dbTemp
-
-	actualDB.get(id, (err, val) => {
+	db.get(id, (err, val) => {
 		if (err) {
 			res.send({
 				id: "Error: ID does not exist in database",
@@ -70,8 +58,7 @@ const saveNewShare = (newShare, res) => {
 	if (typeof(newShare.saveLength) != "number" || newShare.saveLength < 0 || newShare.saveLength > 6.048e+8) return res.send("")
 
 	const now = Date.now()
-	const storeUntil = now + newShare.saveLength
-	const id = storeUntil + "_" + generateID(Math.random() * 16384)
+	const id = ((newShare.saveLength || "p") + now) + "_" + generateID(Math.random() * 16384)
 
 	const validShare = {
 		id,
@@ -79,8 +66,7 @@ const saveNewShare = (newShare, res) => {
 		isPublic: newShare.isPublic || false,
 		title: newShare.title || "No Title",
 		content: newShare.content || "No Content",
-		saveLength: newShare.saveLength,
-		storeUntil
+		saveLength: newShare.saveLength
 	}
 
 	if (validShare.isPublic) {
@@ -92,8 +78,7 @@ const saveNewShare = (newShare, res) => {
 		})
 	}
 
-	let actualDB = newShare.saveLength ? dbTemp : dbPermanent
-	actualDB.put(id, validShare, (err, value) => {
+	db.put(id, validShare, (err, value) => {
 		if (err) {
 			console.log(err)
 			res.send("")
